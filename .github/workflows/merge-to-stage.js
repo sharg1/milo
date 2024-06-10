@@ -1,6 +1,7 @@
 const {
   slackNotification,
   getLocalConfigs,
+  isWithinRCP,
   pulls: { addLabels, addFiles, getChecks, getReviews },
 } = require('./helpers.js');
 
@@ -14,6 +15,7 @@ const LABELS = {
   highPriority: 'high priority',
   readyForStage: 'Ready for Stage',
   SOTPrefix: 'SOT',
+  zeroImpact: 'zero-impact',
 };
 const TEAM_MENTIONS = [
   '@adobecom/miq-sot',
@@ -23,8 +25,8 @@ const TEAM_MENTIONS = [
   '@adobecom/document-cloud-sot',
 ];
 const SLACK = {
-  merge: ({ html_url, number, title }) =>
-    `:merged: PR merged to stage: <${html_url}|${number}: ${title}>.`,
+  merge: ({ html_url, number, title, prefix = '' }) =>
+    `:merged: PR merged to stage: ${prefix} <${html_url}|${number}: ${title}>.`,
   openedSyncPr: ({ html_url, number }) =>
     `:fast_forward: Created <${html_url}|Stage to Main PR ${number}>`,
 };
@@ -44,46 +46,8 @@ let body = `
 - After: https://stage--milo--adobecom.hlx.live/?martech=off
 `;
 
-const RCPDates = [
-  {
-    start: new Date('2024-05-26T00:00:00-07:00'),
-    end: new Date('2024-06-01T00:00:00-07:00'),
-  },
-  {
-    start: new Date('2024-06-13T11:00:00-07:00'),
-    end: new Date('2024-06-13T14:00:00-07:00'),
-  },
-  {
-    start: new Date('2024-06-30T00:00:00-07:00'),
-    end: new Date('2024-07-06T00:00:00-07:00'),
-  },
-  {
-    start: new Date('2024-08-25T00:00:00-07:00'),
-    end: new Date('2024-08-31T00:00:00-07:00'),
-  },
-  {
-    start: new Date('2024-09-12T11:00:00-07:00'),
-    end: new Date('2024-09-12T14:00:00-07:00'),
-  },
-  {
-    start: new Date('2024-10-14T00:00:00-07:00'),
-    end: new Date('2024-11-18T17:00:00-08:00'),
-  },
-  {
-    start: new Date('2024-11-17T00:00:00-08:00'),
-    end: new Date('2024-11-30T00:00:00-08:00'),
-  },
-  {
-    start: new Date('2024-12-12T11:00:00-08:00'),
-    end: new Date('2024-12-12T14:00:00-08:00'),
-  },
-  {
-    start: new Date('2024-12-15T00:00:00-08:00'),
-    end: new Date('2025-01-02T00:00:00-08:00'),
-  },
-];
-
 const isHighPrio = (labels) => labels.includes(LABELS.highPriority);
+const isZeroImpact = (labels) => labels.includes(LABELS.zeroImpact);
 
 const hasFailingChecks = (checks) =>
   checks.some(
@@ -118,11 +82,23 @@ const getPRs = async () => {
     return true;
   });
 
-  return prs.reverse(); // OLD PRs first
+  return prs.reverse().reduce(
+    (categorizedPRs, pr) => {
+      if (isZeroImpact(pr.labels)) {
+        categorizedPRs.zeroImpactPRs.push(pr);
+      } else if (isHighPrio(pr.labels)) {
+        categorizedPRs.highImpactPRs.push(pr);
+      } else {
+        categorizedPRs.normalPRs.push(pr);
+      }
+      return categorizedPRs;
+    },
+    { zeroImpactPRs: [], highImpactPRs: [], normalPRs: [] }
+  );
 };
 
-const merge = async ({ prs }) => {
-  console.log(`Merging ${prs.length || 0} PRs that are ready... `);
+const merge = async ({ prs, type }) => {
+  console.log(`Merging ${prs.length || 0} ${type} PRs that are ready... `);
 
   for await (const { number, files, html_url, title } of prs) {
     try {
@@ -130,7 +106,10 @@ const merge = async ({ prs }) => {
         console.log(`Skipping ${number}: ${title} due to overlap in files.`);
         continue;
       }
-      files.forEach((file) => (SEEN[file] = true));
+      if (type !== LABELS.zeroImpact) {
+        files.forEach((file) => (SEEN[file] = true));
+      }
+
       if (!process.env.LOCAL_RUN) {
         await github.rest.pulls.merge({
           owner,
@@ -139,12 +118,14 @@ const merge = async ({ prs }) => {
           merge_method: 'squash',
         });
       }
-      body = `- ${html_url}\n${body}`;
+      const prefix = type === LABELS.zeroImpact ? ' [ZERO IMPACT]' : '';
+      body = `-${prefix} ${html_url}\n${body}`;
       await slackNotification(
         SLACK.merge({
           html_url,
           number,
           title,
+          prefix,
         })
       );
       await new Promise((resolve) => setTimeout(resolve, 5000));
@@ -217,27 +198,18 @@ const main = async (params) => {
   github = params.github;
   owner = params.context.repo.owner;
   repo = params.context.repo.repo;
+  if (isWithinRCP(2)) return console.log('Stopped, within RCP period.');
 
-  const now = new Date();
-  // We need to revisit this every year
-  if (now.getFullYear() !== 2024) {
-    throw new Error('ADD NEW RCPs');
-  }
-  for (const { start, end } of RCPDates) {
-    if (start <= now && now <= end) {
-      console.log('Current date is within a RCP. Stopping execution.');
-      return;
-    }
-  }
   try {
     const stageToMainPR = await getStageToMainPR();
     console.log('has Stage to Main PR:', !!stageToMainPR);
     if (stageToMainPR) body = stageToMainPR.body;
+    const { zeroImpactPRs, highImpactPRs, normalPRs } = await getPRs();
+    await merge({ prs: zeroImpactPRs, type: LABELS.zeroImpact });
     if (stageToMainPR?.labels.some((label) => label.includes(LABELS.SOTPrefix)))
       return console.log('PR exists & testing started. Stopping execution.');
-    const prs = await getPRs();
-    await merge({ prs: prs.filter(({ labels }) => isHighPrio(labels)) });
-    await merge({ prs: prs.filter(({ labels }) => !isHighPrio(labels)) });
+    await merge({ prs: highImpactPRs, type: LABELS.highPriority });
+    await merge({ prs: normalPRs, type: 'normal' });
     if (!stageToMainPR) await openStageToMainPR();
     if (stageToMainPR && body !== stageToMainPR.body) {
       console.log("Updating PR's body...");
