@@ -1,0 +1,65 @@
+.plan-card-wrapper{
+    border: 1px solid #e0e0e0;
+    width: 250px;
+    padding:10px;
+    margin-left: 20px;
+    background-color: #fff;
+    border-radius: 5px;
+    box-shadow: 2px 2px 6px 0 rgba(0, 0, 0, .16);
+    transition: box-shadow 83ms;
+    padding: 8px 24px;
+}
+
+.plancard-profile{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    border-bottom: 1px solid #e0e0e0;
+    padding-bottom: 10px;
+}
+
+.plancard-profile-avatar{
+    width: 40px;
+    height: 40px;
+    padding-right: 10px;
+}
+.plancard-profile-name{
+    font-weight: 700;
+    color: #4b4b4b;
+}
+.plancard-contract-type-name{
+    padding-top: 10px;
+}
+
+.plancard-products{
+    padding-top: 10px;
+}
+.plancard-product-item-container{
+    display: flex;
+}
+.plancard-product-item{
+    margin-right: 8px;
+}
+
+.plancard-current-product-name{
+    padding-top: 20px;
+    color: #2c2c2c;
+    font-weight: 700;
+}
+.button--count{
+    font-size: 1.5rem;
+    line-height: .625rem;
+}
+/* signed out exp */
+.signed-out-exp{
+    width: 250px;
+    background-image: url(https://helpx-prod.scene7.com/is/image/HelpxProd/sign-in-card-bg?$png$&jpegSize=100&wid=272);
+    background-size: cover;
+    background-position: 50% 50%;
+
+}
+#id-81906103bcc08a30151774aebddbd339 {
+    background-image: url(https://helpx-prod.scene7.com/is/image/HelpxProd/sign-in-card-bg?$png$&jpegSize=100&wid=272);
+    background-size: cover;
+    background-position: 50% 50%;
+}
